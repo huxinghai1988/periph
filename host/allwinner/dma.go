@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 
+	"periph.io/x/periph"
 	"periph.io/x/periph/host/pmem"
 )
 
@@ -444,10 +445,8 @@ func (d *driverDMA) Close() error {
 	return nil
 }
 
-/* TODO(maruel): This is intense, wait to be sure it works.
 func init() {
 	if isArm {
 		periph.MustRegister(&driverDMA{})
 	}
 }
-*/

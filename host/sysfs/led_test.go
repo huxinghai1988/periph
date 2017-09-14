@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"testing"
+	"time"
 
 	"periph.io/x/periph/conn/gpio"
 )
@@ -74,6 +75,9 @@ func TestLED_not_supported(t *testing.T) {
 	}
 	if pull := l.Pull(); pull != gpio.PullNoChange {
 		t.Fatal(pull)
+	}
+	if err := l.PWM(gpio.DutyHalf, time.Millisecond); err == nil {
+		t.Fatal("not supported")
 	}
 }
 

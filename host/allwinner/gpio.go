@@ -19,6 +19,7 @@ import (
 	"periph.io/x/periph"
 	"periph.io/x/periph/conn/gpio"
 	"periph.io/x/periph/conn/gpio/gpioreg"
+	"periph.io/x/periph/conn/gpio/gpiostream"
 	"periph.io/x/periph/host/pmem"
 	"periph.io/x/periph/host/sysfs"
 )
@@ -226,6 +227,81 @@ func (p *Pin) Out(l gpio.Level) error {
 	} else {
 		gpioMemory.groups[p.group].data &^= bit
 	}
+	return nil
+}
+
+// PWM sets the PWM output on supported pins.
+//
+// To use as a general purpose clock, set duty to 32768.
+//
+// Using 0 as period will use the default value of 10kHz.
+//
+// The supported pin(s) vary across the CPU architecture. See the following
+// example to retrieve the pin for the first PWM:
+func (p *Pin) PWM(duty gpio.Duty, period time.Duration) error {
+	if !p.available {
+		return p.wrap(errors.New("not available on this CPU architecture"))
+	}
+	if duty == 0 {
+		return p.Out(gpio.Low)
+	} else if duty == gpio.DutyMax {
+		return p.Out(gpio.High)
+	}
+	if p.altFunc[0] != "PWM" {
+		return p.wrap(errors.New("pwm is not supported on this pin"))
+	}
+	// Intentionally check later, so a more informative error is returned on
+	// unsupported pins.
+	if pwmMemory == nil {
+		return p.wrap(errors.New("subsystem not initialized"))
+	}
+	// TODO(maruel): Use a hard coded 1kHz frequency for now.
+	pwmMemory.ctl &^= pwm0Mask
+	pwmMemory.ctl |= pwm0Prescale120
+	p.setFunction(alt1)
+	// TODO(maruel): Improve resolution; right now it's only 200 gradation.
+	pwmMemory.period = toPeriod(200, uint16((duty*200)/gpio.DutyMax))
+	pwmMemory.ctl |= pwm0Enable | pwm0SCLK
+	return nil
+}
+
+func (p *Pin) StreamOut(s gpiostream.Stream) error {
+	if p.Name() != "PE2" {
+		return p.wrap(errors.New("must use PE2"))
+	}
+	// TODO(maruel): Optimize.
+	if err := p.Out(gpio.Low); err != nil {
+		return err
+	}
+	//if err := Stream(p, s, nil); err != nil {
+	//	return p.wrap(err)
+	//}
+	// Set as SPI2_MOSI.
+	p.setFunction(alt3)
+	b := s.(*gpiostream.BitStream)
+	if err := spi2Write(b.Bits); err != nil {
+		return p.wrap(err)
+	}
+	return nil
+}
+
+func (p *Pin) StreamIn(pull gpio.Pull, b gpiostream.BitStream) error {
+	if p.Name() != "PE3" {
+		return p.wrap(errors.New("must use PE3"))
+	}
+	if pull != gpio.PullNoChange {
+		// TODO(maruel): Optimize.
+		if err := p.In(pull, gpio.NoEdge); err != nil {
+			return err
+		}
+	}
+	// Set as SPI2_MISO.
+	p.setFunction(alt3)
+	//if err := Stream(p, nil, resolution, b); err != nil {
+	if err := spi2Read(b.Bits); err != nil {
+		return p.wrap(err)
+	}
+	p.setFunction(in)
 	return nil
 }
 
@@ -607,6 +683,18 @@ func (d *driverGPIO) Init() (bool, error) {
 		return false, errors.New("Allwinner CPU not detected")
 	}
 	gpioBaseAddr = uint32(getBaseAddress())
+	/*
+		switch {
+		case IsA64():
+			// Page 373.
+			gpioBaseAddr = 0x01C20800
+		case IsR8():
+			// Page 323.
+			gpioBaseAddr = 0x01C20800
+		default:
+			return false, errors.New("unknown Allwinner CPU model")
+		}
+	*/
 	if err := pmem.MapAsPOD(uint64(gpioBaseAddr), &gpioMemory); err != nil {
 		if os.IsPermission(err) {
 			return true, fmt.Errorf("need more access, try as root: %v", err)
@@ -660,7 +748,10 @@ func getBaseAddress() uint64 {
 
 // Ensure that the various structs implement the interfaces they're supposed to.
 
+//var _ gpio.PWMer = &Pin{}
 var _ gpio.PinDefaultPull = &Pin{}
 var _ gpio.PinIO = &Pin{}
 var _ gpio.PinIn = &Pin{}
 var _ gpio.PinOut = &Pin{}
+var _ gpiostream.PinIn = &Pin{}
+var _ gpiostream.PinOut = &Pin{}

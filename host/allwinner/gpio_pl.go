@@ -382,3 +382,7 @@ var _ gpio.PinDefaultPull = &Pin{}
 var _ gpio.PinIO = &PinPL{}
 var _ gpio.PinIn = &PinPL{}
 var _ gpio.PinOut = &PinPL{}
+
+//var _ gpio.PWMer = &PinPL{}
+//var _ gpio.PinStreamReader = &PinPL{}
+//var _ gpio.PinStreamer = &PinPL{}
